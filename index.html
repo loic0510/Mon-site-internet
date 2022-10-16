@@ -7,7 +7,30 @@
     <title>Mon site internet</title>
 </head>
 <body>
-    <h1> Mon site internet </h1>
-    <h2> Maintenant je peux faire ce que je veux </h2>
+    # Programme pour demander le prenom et l'age d'une personne.
+
+prenom = input("Quel est votre prénom ? ")
+
+age = input("Quel est votre age ? ")
+
+try:
+    prochain_age = int(age)+1
+except:
+    print("ERREUR veuillez ne rentrer que des chiffres")
+
+else:
+    print("Votre nom est " + prenom + ", et vous avez " + str(age) + "ans.")
+    print("L'annee prochaine vous aurez donc " + str(prochain_age) + "ans.")
+
+# Faire une suite de nombres
+age_prochain = 0
+while age_prochain == 0:
+    age = input("Quel age avez-vous ? ")
+    try:
+        age_prochain = int(age) + 1
+    except:
+        print("Veullez rentrer un nombre pour l'age")
+
+print("Fin de la boucle")
 </body>
 </html>
