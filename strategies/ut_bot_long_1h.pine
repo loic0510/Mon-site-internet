@@ -1,0 +1,68 @@
+//@version=6
+// =====================================================================================
+// UT BOT — LONG SEULEMENT, GRAPHIQUE 1H
+// Signal Buy = achat, signal Sell = revente (retour cash). Pas de short.
+// Option : n'acheter que si l'EMA 130 journalière monte (filtre de tendance, jour précédent clôturé).
+// Signal à la clôture de la bougie 1h, exécution à l'ouverture suivante. Frais 0,15 %/côté.
+// =====================================================================================
+strategy("UT Bot Long 1H", shorttitle="UT Long 1H", overlay=true, initial_capital=2000,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.15,
+     calc_on_every_tick=false, process_orders_on_close=false,
+     margin_long=100, pyramiding=0)
+
+// ------------------------------------------ Paramètres ------------------------------------------
+a       = input.float(4,  "Key Value (sensibilité)", minval=0.1, step=0.1)
+c       = input.int(10,   "Période ATR", minval=1)
+h       = input.bool(false, "Signaux sur bougies Heikin Ashi")
+useTf   = input.bool(false, "Filtre : EMA journalière en hausse")
+tfLen   = input.int(130,  "Filtre : longueur EMA journalière", minval=2)
+startTs = input.time(timestamp("2026-01-01 00:00 +0000"), "Début du test (UTC)")
+
+if not (timeframe.isintraday and timeframe.multiplier == 60)
+    runtime.error("Appliquer cette stratégie sur un graphique 1H.")
+
+// ------------------------------------------ UT Bot ----------------------------------------------
+float xATR  = ta.atr(c)
+float nLoss = a * xATR
+float src   = h ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close, lookahead = barmerge.lookahead_off) : close
+
+var float trail = 0.0
+float prev = nz(trail[1])
+trail := src > prev and src[1] > prev ? math.max(prev, src - nLoss) :
+         src < prev and src[1] < prev ? math.min(prev, src + nLoss) :
+         src > prev ? src - nLoss : src + nLoss
+
+bool buy  = src > trail and ta.crossover(src, trail)
+bool sell = src < trail and ta.crossunder(src, trail)
+
+// ------------------------------------------ Filtre journalier -----------------------------------
+// [1] + lookahead_on = valeur de la dernière journée CLÔTURÉE (pas de regard dans le futur)
+float emaD   = request.security(syminfo.tickerid, "D", ta.ema(close, tfLen)[1], lookahead = barmerge.lookahead_on)
+float emaD1  = request.security(syminfo.tickerid, "D", ta.ema(close, tfLen)[2], lookahead = barmerge.lookahead_on)
+bool  dayUp  = emaD > emaD1
+bool  okLong = not useTf or dayUp
+
+// ------------------------------------------ Ordres ----------------------------------------------
+bool ready = time >= startTs and barstate.isconfirmed
+
+sendAlert(string action) =>
+    alert('{"action":"' + action + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + '}', alert.freq_once_per_bar_close)
+
+if ready
+    if buy and okLong and strategy.position_size <= 0
+        strategy.entry("Long", strategy.long, comment = "Buy")
+        sendAlert("buy")
+    else if strategy.position_size > 0 and (sell or not okLong)
+        strategy.close("Long", comment = sell ? "Sell" : "Filtre jour")
+        sendAlert("sell")
+
+// ------------------------------------------ Affichage -------------------------------------------
+plot(trail, "UT Trailing Stop", color = src > trail ? color.green : color.red)
+plotshape(buy and okLong, title = "Buy",  text = "Buy",  style = shape.labelup,   location = location.belowbar, color = color.green, textcolor = color.white, size = size.tiny)
+plotshape(sell,           title = "Sell", text = "Sell", style = shape.labeldown, location = location.abovebar, color = color.red,   textcolor = color.white, size = size.tiny)
+barcolor(src > trail ? color.green : src < trail ? color.red : na)
+bgcolor(useTf and not dayUp ? color.new(color.gray, 92) : na)
+
+alertcondition(buy and okLong, "UT Long",  "UT Long")
+alertcondition(sell,           "UT Sortie", "UT Sortie")
