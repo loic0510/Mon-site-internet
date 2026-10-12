@@ -1,0 +1,65 @@
+//@version=6
+// =====================================================================================
+// UT BOT — STRATÉGIE LONG / SHORT (conversion de l'indicateur "UT Bot Alerts" v4)
+// Signal Buy = entrée long (ferme le short), signal Sell = entrée short (ferme le long).
+// Signal à la clôture de la bougie, exécution à l'ouverture suivante. Frais 0,15 %/côté.
+// =====================================================================================
+strategy("UT Bot Strategy", shorttitle="UT Bot", overlay=true, initial_capital=2000,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.15,
+     calc_on_every_tick=false, process_orders_on_close=false,
+     margin_long=100, margin_short=100, pyramiding=0)
+
+// ------------------------------------------ Paramètres ------------------------------------------
+a       = input.float(1,  "Key Value (sensibilité)", minval=0.1, step=0.1)
+c       = input.int(10,   "Période ATR", minval=1)
+h       = input.bool(false, "Signaux sur bougies Heikin Ashi")
+mode    = input.string("Long / Short", "Mode", options=["Long / Short", "Long seulement", "Short seulement"])
+startTs = input.time(timestamp("2020-10-01 00:00 +0000"), "Début du test (UTC)")
+
+// ------------------------------------------ UT Bot ----------------------------------------------
+float xATR  = ta.atr(c)
+float nLoss = a * xATR
+float src   = h ? request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close, lookahead = barmerge.lookahead_off) : close
+
+var float trail = 0.0
+float prev = nz(trail[1])
+trail := src > prev and src[1] > prev ? math.max(prev, src - nLoss) :
+         src < prev and src[1] < prev ? math.min(prev, src + nLoss) :
+         src > prev ? src - nLoss : src + nLoss
+
+bool buy  = src > trail and ta.crossover(src, trail)
+bool sell = src < trail and ta.crossunder(src, trail)
+
+// ------------------------------------------ Ordres ----------------------------------------------
+bool ready     = time >= startTs and barstate.isconfirmed
+bool allowLong  = mode != "Short seulement"
+bool allowShort = mode != "Long seulement"
+
+sendAlert(string action) =>
+    alert('{"action":"' + action + '","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + '}', alert.freq_once_per_bar_close)
+
+if ready and buy
+    if allowLong
+        strategy.entry("Long", strategy.long, comment = "Buy")
+        sendAlert("buy")
+    else if strategy.position_size < 0
+        strategy.close("Short", comment = "Buy")
+        sendAlert("cover")
+
+if ready and sell
+    if allowShort
+        strategy.entry("Short", strategy.short, comment = "Sell")
+        sendAlert("short")
+    else if strategy.position_size > 0
+        strategy.close("Long", comment = "Sell")
+        sendAlert("sell")
+
+// ------------------------------------------ Affichage -------------------------------------------
+plot(trail, "UT Trailing Stop", color = src > trail ? color.green : color.red)
+plotshape(buy,  title = "Buy",  text = "Buy",  style = shape.labelup,   location = location.belowbar, color = color.green, textcolor = color.white, size = size.tiny)
+plotshape(sell, title = "Sell", text = "Sell", style = shape.labeldown, location = location.abovebar, color = color.red,   textcolor = color.white, size = size.tiny)
+barcolor(src > trail ? color.green : src < trail ? color.red : na)
+
+alertcondition(buy,  "UT Long",  "UT Long")
+alertcondition(sell, "UT Short", "UT Short")
